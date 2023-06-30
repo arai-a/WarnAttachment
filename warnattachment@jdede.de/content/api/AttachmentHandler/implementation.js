@@ -10,6 +10,23 @@ function log(msg){
   Services.console.logStringMessage(msg);
 }
 
+function getAttachmentInfo(window) {
+  // Before bug 1696777, AttachmentInfo has been global variable, but
+  // the patch moved it into a system module.
+  if ("AttachmentInfo" in window) {
+    return window.AttachmentInfo;
+  }
+
+  try {
+    const { AttachmentInfo } = ChromeUtils.importESModule(
+      "resource:///modules/AttachmentInfo.sys.mjs"
+    );
+    return AttachmentInfo;
+  } catch (e) {
+  }
+
+  throw new Error("AttachmentInfo is not found");
+}
 
 var AttachmentHandler = class extends ExtensionCommon.ExtensionAPI {
   getAPI(context) {
@@ -59,8 +76,9 @@ var windowListener = new class extends ExtensionCommon.EventEmitter {
           "chrome://messenger/content/messageWindow.xhtml",
         ],
         onLoadWindow: function(window) {
-          window.originalOpener = window.AttachmentInfo.prototype.open;
-          window.AttachmentInfo.prototype.open = async function() {
+          let AttachmentInfo = getAttachmentInfo(window);
+          window.originalOpener = AttachmentInfo.prototype.open;
+          AttachmentInfo.prototype.open = async function() {
               windowListener.callback({
                   contentType : this.contentType,
                   url : this.url,
@@ -85,6 +103,7 @@ var windowListener = new class extends ExtensionCommon.EventEmitter {
     this.callbackCount--;
 
     if (this.callbackCount == 0) {
+      let AttachmentInfo = getAttachmentInfo(window);
       for (let window of ExtensionSupport.openWindows) {
         if ([
           "chrome://messenger/content/messenger.xhtml",
@@ -92,7 +111,7 @@ var windowListener = new class extends ExtensionCommon.EventEmitter {
           "chrome://messenger/content/messageWindow.xul",
           "chrome://messenger/content/messageWindow.xhtml",
         ].includes(window.location.href)) {
-          window.AttachmentInfo.prototype.open = window.originalOpener;
+          AttachmentInfo.prototype.open = window.originalOpener;
         }
       }
       ExtensionSupport.unregisterWindowListener(LISTENER_NAME);
